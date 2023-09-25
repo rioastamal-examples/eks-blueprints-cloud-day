@@ -1,50 +1,33 @@
-provider "aws" {
-  region = local.region
-}
-
-provider "kubernetes" {
-  host                   = module.eks.cluster_endpoint
-  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-
-  exec {
-    api_version = "client.authentication.k8s.io/v1beta1"
-    command     = "aws"
-    # This requires the awscli to be installed locally where Terraform is executed
-    args = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
-  }
-}
-
-provider "helm" {
-  kubernetes {
-    host                   = module.eks.cluster_endpoint
-    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-
-    exec {
-      api_version = "client.authentication.k8s.io/v1beta1"
-      command     = "aws"
-      # This requires the awscli to be installed locally where Terraform is executed
-      args = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
-    }
-  }
-}
-
-provider "bcrypt" {}
-
 data "aws_caller_identity" "current" {}
 data "aws_availability_zones" "available" {}
 
-locals {
-  name   = basename(path.cwd)
-  region = "ap-southeast-1"
-  console_user = "demo"
+################################################################################
+# Supporting Resources
+################################################################################
 
-  vpc_cidr = "10.0.0.0/16"
-  azs      = slice(data.aws_availability_zones.available.names, 0, 3)
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "~> 5.0"
 
-  tags = {
-    Blueprint  = local.name
-    GithubRepo = "github.com/aws-ia/terraform-aws-eks-blueprints"
+  name = local.name
+  cidr = local.vpc_cidr
+
+  azs             = local.azs
+  private_subnets = [for k, v in local.azs : cidrsubnet(local.vpc_cidr, 4, k)]
+  public_subnets  = [for k, v in local.azs : cidrsubnet(local.vpc_cidr, 8, k + 48)]
+
+  enable_nat_gateway = true
+  single_nat_gateway = true
+
+  public_subnet_tags = {
+    "kubernetes.io/role/elb" = 1
   }
+
+  private_subnet_tags = {
+    "kubernetes.io/role/internal-elb" = 1
+  }
+
+  tags = local.tags
 }
 
 ################################################################################
@@ -79,6 +62,7 @@ module "eks" {
     }
   ]
 
+  # We are using managed nodes, meaning the lifecycle of the EC2 is handled by EKS
   eks_managed_node_groups = {
     initial = {
       instance_types = ["m5.large"]
@@ -93,70 +77,29 @@ module "eks" {
 }
 
 ################################################################################
-# EKS Blueprints Addons
+# Platform team configuration (Admin access)
 ################################################################################
+module "eks_blueprints_admin_team" {
+  source  = "aws-ia/eks-blueprints-teams/aws"
+  version = "~> 1.0"
 
-module "eks_blueprints_addons" {
-  depends_on = [module.eks_blueprints_team_riker]
-  
-  # Users should pin the version to the latest available release
-  # tflint-ignore: terraform_module_pinned_source
-  source = "github.com/aws-ia/terraform-aws-eks-blueprints?ref=blueprints-workshops/modules/kubernetes-addons"
+  name = "team-admin"
 
-  eks_cluster_id        = module.eks.cluster_name
-  eks_cluster_endpoint  = module.eks.cluster_endpoint
-  eks_cluster_version   = module.eks.cluster_version
-  eks_oidc_provider     = module.eks.oidc_provider
-  eks_oidc_provider_arn = module.eks.oidc_provider_arn
-
-  enable_argocd = true
-  # This example shows how to set default ArgoCD Admin Password using SecretsManager with Helm Chart set_sensitive values.
-  argocd_helm_config = {
-    set_sensitive = [
-      {
-        name  = "configs.secret.argocdServerAdminPassword"
-        value = bcrypt_hash.argo.id
-      }
-    ]
-    set = [
-      {
-        name  = "server.service.type"
-        value = "LoadBalancer"
-      }
-    ]
-  }
-
-  argocd_manage_add_ons = true # Indicates that ArgoCD is responsible for managing/deploying add-ons
-  argocd_applications = {
-    addons = {
-      path               = "chart"
-      repo_url           = "https://github.com/aws-samples/eks-blueprints-add-ons.git"
-      add_on_application = true
-    }
-    # Activate this when all has been deployed
-    # workloads = {
-    #   path               = "envs/dev"
-    #   repo_url           = "https://github.com/rioastamal-examples/eks-blueprints-workloads.git"
-    #   add_on_application = false
-    # }
-  }
-
-  # Add-ons
-  enable_amazon_eks_aws_ebs_csi_driver = true
-  enable_aws_load_balancer_controller  = true
-  enable_cert_manager                  = true
-  enable_karpenter                     = false
-  enable_metrics_server                = true
-  enable_argo_rollouts                 = true
+  enable_admin = true
+  users        = [data.aws_caller_identity.current.arn]
+  cluster_arn  = module.eks.cluster_arn
 
   tags = local.tags
 }
 
-module "eks_blueprints_team_riker" {
+################################################################################
+# Application team configuration
+################################################################################
+module "eks_blueprints_team_jkt" {
   source  = "aws-ia/eks-blueprints-teams/aws"
   version = "~> 1.0"
 
-  name = "admin-team"
+  name = "team-jkt"
 
   users             = [data.aws_caller_identity.current.arn]
   cluster_arn       = module.eks.cluster_arn
@@ -195,15 +138,61 @@ module "eks_blueprints_team_riker" {
   tags = local.tags
 }
 
-module "eks_blueprints_admin_team" {
-  source  = "aws-ia/eks-blueprints-teams/aws"
-  version = "~> 1.0"
+################################################################################
+# EKS Blueprints Addons
+################################################################################
+module "eks_blueprints_addons" {
+  depends_on = [module.eks_blueprints_team_jkt]
+  
+  # Users should pin the version to the latest available release
+  # tflint-ignore: terraform_module_pinned_source
+  source = "github.com/aws-ia/terraform-aws-eks-blueprints?ref=blueprints-workshops/modules/kubernetes-addons"
 
-  name = "team-admin"
+  eks_cluster_id        = module.eks.cluster_name
+  eks_cluster_endpoint  = module.eks.cluster_endpoint
+  eks_cluster_version   = module.eks.cluster_version
+  eks_oidc_provider     = module.eks.oidc_provider
+  eks_oidc_provider_arn = module.eks.oidc_provider_arn
 
-  enable_admin = true
-  users        = [data.aws_caller_identity.current.arn]
-  cluster_arn  = module.eks.cluster_arn
+  enable_argocd = true
+  # This example shows how to set default ArgoCD Admin Password using SecretsManager with Helm Chart set_sensitive values.
+  argocd_helm_config = {
+    set_sensitive = [
+      {
+        name  = "configs.secret.argocdServerAdminPassword"
+        value = bcrypt_hash.argo.id
+      }
+    ]
+    set = [
+      {
+        name  = "server.service.type"
+        value = "LoadBalancer"
+      }
+    ]
+  }
+
+  argocd_manage_add_ons = true # Indicates that ArgoCD is responsible for managing/deploying add-ons
+  argocd_applications = {
+    addons = {
+      path               = "chart"
+      repo_url           = "https://github.com/aws-samples/eks-blueprints-add-ons.git"
+      add_on_application = true
+    }
+    # Activate this when all has been deployed
+    workloads = {
+      path               = "envs/dev"
+      repo_url           = "https://github.com/rioastamal-examples/eks-blueprints-workloads.git"
+      add_on_application = false
+    }
+  }
+
+  # Add-ons
+  enable_amazon_eks_aws_ebs_csi_driver = true
+  enable_aws_load_balancer_controller  = true
+  enable_cert_manager                  = true
+  enable_karpenter                     = false
+  enable_metrics_server                = true
+  enable_argo_rollouts                 = true
 
   tags = local.tags
 }
@@ -233,33 +222,4 @@ resource "aws_secretsmanager_secret" "argocd" {
 resource "aws_secretsmanager_secret_version" "argocd" {
   secret_id     = aws_secretsmanager_secret.argocd.id
   secret_string = random_password.argocd.result
-}
-
-################################################################################
-# Supporting Resources
-################################################################################
-
-module "vpc" {
-  source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 5.0"
-
-  name = local.name
-  cidr = local.vpc_cidr
-
-  azs             = local.azs
-  private_subnets = [for k, v in local.azs : cidrsubnet(local.vpc_cidr, 4, k)]
-  public_subnets  = [for k, v in local.azs : cidrsubnet(local.vpc_cidr, 8, k + 48)]
-
-  enable_nat_gateway = true
-  single_nat_gateway = true
-
-  public_subnet_tags = {
-    "kubernetes.io/role/elb" = 1
-  }
-
-  private_subnet_tags = {
-    "kubernetes.io/role/internal-elb" = 1
-  }
-
-  tags = local.tags
 }
