@@ -179,11 +179,11 @@ module "eks_blueprints_addons" {
       add_on_application = true
     }
     # Activate this when all has been deployed
-    workloads = {
-      path               = "envs/dev"
-      repo_url           = "https://github.com/rioastamal-examples/eks-blueprints-workloads.git"
-      add_on_application = false
-    }
+    # workloads = {
+    #   path               = "envs/dev"
+    #   repo_url           = "https://github.com/rioastamal-examples/eks-blueprints-workloads.git"
+    #   add_on_application = false
+    # }
   }
 
   # Add-ons
