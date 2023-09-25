@@ -2,10 +2,12 @@
 
 ### Stage 1
 
-1. Jelaskan struktur dari `terraform-aws-eks-blueprints/` dimana ini adalah source dari AWS EKS Blueprints
+1. Jelaskan struktur dari [terraform-aws-eks-blueprints/](https://github.com/aws-ia/terraform-aws-eks-blueprints) dimana ini adalah source dari AWS EKS Blueprints
 2. Jelaskan struktur dari `eks-blueprints-cloud-day/` dimana ini adalah implementasi (copy-paste pattern) dari EKS Blueprints
-3. Jelaskan struktur dari `eks-blueprints-workloads/` dimana ini adalah app yang akan dideploy
-4. Mulai implementasi, jalankan terraform init pada direktori `eks-blueprints-cloud-day/` untuk menginstall module dan dependencies
+3. Jelaskan struktur dari [eks-blueprints-workloads/](https://github.com/rioastamal-examples/eks-blueprints-workloads/) dimana ini adalah app yang akan dideploy
+4. Mulai implementasi.
+
+Jalankan terraform init pada direktori `eks-blueprints-cloud-day/argocd-cloud-day/` untuk menginstall module dan dependencies
 
 ```
 terraform init
