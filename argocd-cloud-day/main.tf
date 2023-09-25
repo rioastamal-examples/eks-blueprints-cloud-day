@@ -106,16 +106,16 @@ module "eks_blueprints_team_jkt" {
   oidc_provider_arn = module.eks.oidc_provider_arn
 
   labels = {
-    team = "team-jtk"
+    team = "team-jkt"
     project = "cloud-day"
   }
 
   annotations = {
-    team = "team-jtk"
+    team = "team-jkt"
   }
 
   namespaces = {
-    "team-jtk" = {
+    "team-jkt" = {
       labels = {
         appName     = "cloud-day-app",
         projectName = "riker-cloud-day",
