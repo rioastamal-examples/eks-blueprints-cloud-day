@@ -118,7 +118,7 @@ module "eks_blueprints_team_jkt" {
     "team-jkt" = {
       labels = {
         appName     = "cloud-day-app",
-        projectName = "riker-cloud-day",
+        projectName = "jkt-cloud-day",
       }
 
       resource_quota = {
